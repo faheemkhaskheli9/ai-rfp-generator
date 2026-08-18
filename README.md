@@ -45,6 +45,14 @@ Requirement -> Document Structure -> Fact Extraction -> Section Generation -> Va
 3. Phase 3: Validation and prompt-experimentation framework
 4. Phase 4: DOCX/PDF export
 
+## Task Tracking
+
+Work is broken into phase-tagged user stories tracked as GitHub Issues, not in this file. To see what's open:
+
+    gh issue list --repo faheemkhaskheli9/ai-rfp-generator --state open --label type:user-story
+
+Implement Phase 1 issues first (later phases depend on it). When you start one, add label `status:in-progress`. When you finish, close it referencing the commit (e.g. `git commit -m "... Closes #4"`) and push.
+
 ## 6. Repository Structure
 
 ```text
