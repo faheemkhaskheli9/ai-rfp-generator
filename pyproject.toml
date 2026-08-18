@@ -1,0 +1,5 @@
+[project]
+name = "ai-rfp-generator"
+version = "0.1.0"
+description = "RFP Generation using LLM"
+requires-python = ">=3.10"
