@@ -4,7 +4,7 @@
 > This is an original, from-scratch build. It is not affiliated with, and does not
 > contain any code, prompts, data, or business logic from, any employer or client.
 
-![status](https://img.shields.io/badge/status-planned-lightgrey)
+![status](https://img.shields.io/badge/status-in%20progress-yellow)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -94,10 +94,16 @@ No proprietary, employer-owned, or client-identifiable data is used in this proj
 
 ## 9. Training / Execution
 
-Document the commands used to run training, ingestion, or the main pipeline, e.g.:
+Phase 1 ships the requirement-intake API: `POST /requirements` accepts pasted
+text or an uploaded `.txt`/`.docx`/`.pdf` file (multipart form), extracts
+plain text, and persists it. Storage is a SQLAlchemy engine pointed at
+PostgreSQL in production, defaulting to a local SQLite file (`DATABASE_URL`)
+so the API and tests need no external database:
 
 ```bash
-python -m src.main --config configs/default.yaml
+pip install -r requirements.txt
+uvicorn ai_rfp_generator.app:app --reload --app-dir src
+# then: curl -F text="Build a customer portal" http://localhost:8000/requirements
 ```
 
 ## 10. Evaluation
