@@ -11,8 +11,15 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Integer, String, Text, create_engine
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    create_engine,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 
 class Base(DeclarativeBase):
@@ -27,6 +34,26 @@ class Requirement(Base):
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(32), default="received")
     content: Mapped[str] = mapped_column(Text)
+
+    items: Mapped[list["RequirementItem"]] = relationship(
+        back_populates="requirement", cascade="all, delete-orphan", order_by="RequirementItem.position"
+    )
+
+
+class RequirementItem(Base):
+    """A single normalized item (section/question/deadline/requirement) parsed
+    out of a :class:`Requirement`'s raw ``content``.
+    """
+
+    __tablename__ = "requirement_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    requirement_id: Mapped[int] = mapped_column(ForeignKey("requirements.id"), nullable=False)
+    position: Mapped[int] = mapped_column(Integer)
+    item_type: Mapped[str] = mapped_column(String(32))
+    content: Mapped[str] = mapped_column(Text)
+
+    requirement: Mapped[Requirement] = relationship(back_populates="items")
 
 
 def make_engine(database_url: str | None = None):

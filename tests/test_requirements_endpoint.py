@@ -5,7 +5,7 @@ def test_text_submission_is_persisted_and_returns_id(client):
     response = client.post("/requirements", data={"text": "Build a customer portal"})
     assert response.status_code == 201
     body = response.json()
-    assert body["status"] == "received"
+    assert body["status"] == "parsed"
     assert isinstance(body["id"], int)
 
 
@@ -37,6 +37,13 @@ def test_unsupported_file_type_is_rejected(client):
     assert "unsupported" in response.json()["detail"].lower()
 
 
+def test_binary_garbage_text_is_persisted_with_retryable_parse_failed_status(client):
+    response = client.post("/requirements", data={"text": "not\x00really\x01text"})
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "parse_failed"
+
+
 def test_persisted_requirement_is_readable_from_the_database(client, tmp_path):
     import os
 
@@ -50,4 +57,6 @@ def test_persisted_requirement_is_readable_from_the_database(client, tmp_path):
         rows = session.query(Requirement).all()
         assert len(rows) == 1
         assert rows[0].content == "Persisted content check"
-        assert rows[0].status == "received"
+        assert rows[0].status == "parsed"
+        assert len(rows[0].items) == 1
+        assert rows[0].items[0].content == "Persisted content check"
