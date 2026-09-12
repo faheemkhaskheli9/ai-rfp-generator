@@ -106,6 +106,20 @@ uvicorn ai_rfp_generator.app:app --reload --app-dir src
 # then: curl -F text="Build a customer portal" http://localhost:8000/requirements
 ```
 
+`POST /requirements/{id}/outline` generates a document outline from the
+requirement's normalized items via one OpenAI chat-completion call (model
+configurable via `OUTLINE_MODEL`, defaulting to `gpt-4o-mini` — never
+hardcoded, per the provider-swappable convention in `docs/architecture.md`),
+validates the response (non-empty, ordered `{title, description}` sections),
+and persists it linked to the source requirement. Returns `503` if
+`OPENAI_API_KEY` isn't set. `examples/generate_outline_example.py` runs the
+same normalize → generate flow end-to-end offline against a fake client, no
+API key required:
+
+```bash
+PYTHONPATH=src python examples/generate_outline_example.py
+```
+
 ## 10. Evaluation
 
 Document evaluation metrics and how to reproduce them here (see `docs/evaluation.md`).

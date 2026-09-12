@@ -38,6 +38,9 @@ class Requirement(Base):
     items: Mapped[list["RequirementItem"]] = relationship(
         back_populates="requirement", cascade="all, delete-orphan", order_by="RequirementItem.position"
     )
+    outlines: Mapped[list["Outline"]] = relationship(
+        back_populates="requirement", cascade="all, delete-orphan"
+    )
 
 
 class RequirementItem(Base):
@@ -54,6 +57,39 @@ class RequirementItem(Base):
     content: Mapped[str] = mapped_column(Text)
 
     requirement: Mapped[Requirement] = relationship(back_populates="items")
+
+
+class Outline(Base):
+    """An LLM-generated document outline for one :class:`Requirement`.
+
+    A requirement can be re-outlined (e.g. after edits or a re-run with a
+    different model) — each attempt is its own row, linked by
+    ``requirement_id``, rather than overwriting a prior outline.
+    """
+
+    __tablename__ = "outlines"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    requirement_id: Mapped[int] = mapped_column(ForeignKey("requirements.id"), nullable=False)
+    model: Mapped[str] = mapped_column(String(128))
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    requirement: Mapped[Requirement] = relationship(back_populates="outlines")
+    sections: Mapped[list["OutlineSection"]] = relationship(
+        back_populates="outline", cascade="all, delete-orphan", order_by="OutlineSection.position"
+    )
+
+
+class OutlineSection(Base):
+    __tablename__ = "outline_sections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    outline_id: Mapped[int] = mapped_column(ForeignKey("outlines.id"), nullable=False)
+    position: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str] = mapped_column(Text)
+
+    outline: Mapped[Outline] = relationship(back_populates="sections")
 
 
 def make_engine(database_url: str | None = None):
