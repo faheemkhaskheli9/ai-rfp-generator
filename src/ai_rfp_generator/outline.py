@@ -19,13 +19,32 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Protocol
 
-from ai_rfp_generator.db import Outline, OutlineSection, Requirement, RequirementItem
+from ai_rfp_generator.db import Outline, OutlineRevision, OutlineSection, Requirement, RequirementItem
 
 DEFAULT_MODEL = "gpt-4o-mini"
+
+#: Outline.status values. "draft" gates Phase 2 drafting off until a human
+#: reviewer explicitly approves; editing a reviewed outline drops it back to
+#: "draft" so an approval can never silently cover changed content.
+STATUS_DRAFT = "draft"
+STATUS_APPROVED = "approved"
+STATUS_REJECTED = "rejected"
+VALID_STATUSES = frozenset({STATUS_DRAFT, STATUS_APPROVED, STATUS_REJECTED})
 
 
 class OutlineGenerationError(RuntimeError):
     """The outline-generation call failed, or its response can't be trusted."""
+
+
+class OutlineEditError(RuntimeError):
+    """A proposed edit to an outline's sections isn't a valid outline."""
+
+
+class OutlineNotApprovedError(RuntimeError):
+    """Raised by :func:`require_outline_approved` when a caller downstream of
+    review (e.g. Phase 2 section drafting) tries to proceed on an outline that
+    hasn't been explicitly approved by a human reviewer.
+    """
 
 
 @dataclass(frozen=True)
@@ -59,6 +78,34 @@ def _build_requirement_text(items: list[RequirementItem]) -> str:
     return "\n".join(f"[{item.item_type}] {item.content}" for item in ordered)
 
 
+def _validate_sections(
+    raw_sections: object, *, error: type[Exception], source: str = "outline generator"
+) -> list[OutlineSectionDraft]:
+    """Validate ``raw_sections`` into an ordered, non-empty list of sections.
+
+    Shared by :func:`generate_outline` (validating an LLM response) and
+    :func:`apply_outline_edit` (validating a human reviewer's edit) so both
+    entry points reject a malformed/empty section list the same way instead
+    of drifting apart. ``error`` is the exception type to raise and ``source``
+    names the caller in the message, so each surfaces a failure that matches
+    its own domain.
+    """
+    if not isinstance(raw_sections, list) or not raw_sections:
+        raise error(f"{source} returned no sections (got {raw_sections!r})")
+
+    sections: list[OutlineSectionDraft] = []
+    for index, entry in enumerate(raw_sections):
+        if not isinstance(entry, dict):
+            raise error(f"section {index} is not an object: {entry!r}")
+        title, description = entry.get("title"), entry.get("description")
+        if not isinstance(title, str) or not title.strip():
+            raise error(f"section {index} has an invalid title: {title!r}")
+        if not isinstance(description, str) or not description.strip():
+            raise error(f"section {index} has an invalid description: {description!r}")
+        sections.append(OutlineSectionDraft(position=index, title=title.strip(), description=description.strip()))
+    return sections
+
+
 def generate_outline(client: OutlineGeneratorClient, items: list[RequirementItem]) -> OutlineDraft:
     """Generate and validate an outline for ``items``.
 
@@ -70,19 +117,7 @@ def generate_outline(client: OutlineGeneratorClient, items: list[RequirementItem
         raise OutlineGenerationError("cannot generate an outline from zero requirement items")
 
     raw_sections = client.generate(_build_requirement_text(items))
-    if not isinstance(raw_sections, list) or not raw_sections:
-        raise OutlineGenerationError(f"outline generator returned no sections (got {raw_sections!r})")
-
-    sections: list[OutlineSectionDraft] = []
-    for index, entry in enumerate(raw_sections):
-        if not isinstance(entry, dict):
-            raise OutlineGenerationError(f"section {index} is not an object: {entry!r}")
-        title, description = entry.get("title"), entry.get("description")
-        if not isinstance(title, str) or not title.strip():
-            raise OutlineGenerationError(f"section {index} has an invalid title: {title!r}")
-        if not isinstance(description, str) or not description.strip():
-            raise OutlineGenerationError(f"section {index} has an invalid description: {description!r}")
-        sections.append(OutlineSectionDraft(position=index, title=title.strip(), description=description.strip()))
+    sections = _validate_sections(raw_sections, error=OutlineGenerationError)
 
     return OutlineDraft(
         sections=tuple(sections),
@@ -97,6 +132,7 @@ def persist_outline(session, requirement: Requirement, draft: OutlineDraft) -> O
         requirement_id=requirement.id,
         model=draft.model,
         generated_at=datetime.fromisoformat(draft.generated_at),
+        status=STATUS_DRAFT,
     )
     outline.sections = [
         OutlineSection(position=s.position, title=s.title, description=s.description)
@@ -104,6 +140,87 @@ def persist_outline(session, requirement: Requirement, draft: OutlineDraft) -> O
     ]
     session.add(outline)
     return outline
+
+
+def _snapshot_sections(outline: Outline) -> OutlineRevision:
+    """Build (but don't add to the session) a revision snapshotting
+    ``outline``'s current sections, so the pre-edit state — including the
+    original LLM-generated outline, on the first edit — isn't lost.
+    """
+    payload = [
+        {"position": s.position, "title": s.title, "description": s.description}
+        for s in sorted(outline.sections, key=lambda s: s.position)
+    ]
+    return OutlineRevision(
+        outline_id=outline.id,
+        captured_at=datetime.now(timezone.utc),
+        sections_json=json.dumps(payload),
+    )
+
+
+def apply_outline_edit(session, outline: Outline, raw_sections: list[dict]) -> Outline:
+    """Replace ``outline``'s sections with a human reviewer's edit.
+
+    ``raw_sections`` is the full desired ordered list of ``{"title",
+    "description"}`` objects — reordering, renaming, adding, and removing
+    sections are all expressed as "here is the new full list" rather than
+    per-section patch ops, so position is always derived from list order and
+    can't drift out of sync.
+
+    Raises :class:`OutlineEditError` if the proposed sections aren't a
+    non-empty, well-formed list (same validation as a freshly generated
+    outline). Snapshots the outline's current sections into an
+    :class:`OutlineRevision` *before* mutating them, and — because an edit can
+    invalidate what a reviewer already signed off on — resets ``status`` back
+    to ``draft`` if the outline had been approved or rejected, requiring a
+    fresh explicit approval.
+    """
+    new_sections = _validate_sections(raw_sections, error=OutlineEditError, source="outline edit")
+
+    session.add(_snapshot_sections(outline))
+    outline.sections = [
+        OutlineSection(position=s.position, title=s.title, description=s.description)
+        for s in new_sections
+    ]
+    outline.updated_at = datetime.now(timezone.utc)
+    if outline.status != STATUS_DRAFT:
+        outline.status = STATUS_DRAFT
+        outline.reviewed_at = None
+    return outline
+
+
+def approve_outline(outline: Outline) -> Outline:
+    """Mark ``outline`` as approved by a human reviewer.
+
+    This is the explicit gate Phase 2 (section drafting) checks via
+    :func:`require_outline_approved` before it may start.
+    """
+    outline.status = STATUS_APPROVED
+    outline.reviewed_at = datetime.now(timezone.utc)
+    return outline
+
+
+def reject_outline(outline: Outline) -> Outline:
+    """Mark ``outline`` as rejected by a human reviewer (needs more edits)."""
+    outline.status = STATUS_REJECTED
+    outline.reviewed_at = datetime.now(timezone.utc)
+    return outline
+
+
+def require_outline_approved(outline: Outline) -> None:
+    """Gate for any downstream step (Phase 2 drafting) that must not run on
+    an outline a human hasn't explicitly approved.
+
+    Raises :class:`OutlineNotApprovedError` unless ``outline.status ==
+    "approved"`` — covers both a never-reviewed outline (``draft``) and one a
+    reviewer rejected, as well as one edited after approval and thus reset
+    back to ``draft`` by :func:`apply_outline_edit`.
+    """
+    if outline.status != STATUS_APPROVED:
+        raise OutlineNotApprovedError(
+            f"outline {outline.id} is not approved (status={outline.status!r}); "
+            "cannot proceed to drafting"
+        )
 
 
 class OpenAIOutlineClient:
