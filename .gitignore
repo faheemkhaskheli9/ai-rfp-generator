@@ -14,6 +14,7 @@ dist/
 *.db
 data/raw/
 data/processed/
+source_materials/
 models/*.pt
 models/*.onnx
 models/*.engine

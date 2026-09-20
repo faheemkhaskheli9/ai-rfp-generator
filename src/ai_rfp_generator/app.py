@@ -14,10 +14,18 @@ from __future__ import annotations
 import logging
 import os
 
-from fastapi import FastAPI, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from ai_rfp_generator.db import Outline, Requirement, RequirementItem, make_engine, make_session_factory, now_utc
+from ai_rfp_generator.db import (
+    Outline,
+    Requirement,
+    RequirementItem,
+    SourceMaterial,
+    make_engine,
+    make_session_factory,
+    now_utc,
+)
 from ai_rfp_generator.normalize import NormalizationError, normalize_text
 from ai_rfp_generator.outline import (
     OpenAIOutlineClient,
@@ -30,6 +38,11 @@ from ai_rfp_generator.outline import (
     reject_outline,
 )
 from ai_rfp_generator.parsing import UnsupportedFileTypeError, extract_text
+from ai_rfp_generator.source_materials import (
+    SourceMaterialUploadError,
+    UploadedFile,
+    store_source_materials,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +71,20 @@ class OutlineResponse(BaseModel):
     generated_at: str
     updated_at: str | None
     sections: list[OutlineSectionResponse]
+
+
+class SourceMaterialResponse(BaseModel):
+    id: int
+    requirement_id: int
+    original_filename: str
+    extension: str
+    size_bytes: int
+    content_hash: str
+    uploaded_at: str
+
+
+class SourceMaterialsUploaded(BaseModel):
+    source_materials: list[SourceMaterialResponse]
 
 
 class OutlineSectionEdit(BaseModel):
@@ -120,6 +147,52 @@ async def submit_requirement(
         session.refresh(requirement)
 
         return RequirementCreated(id=requirement.id, status=requirement.status)
+
+
+def _source_material_response(source_material: SourceMaterial) -> SourceMaterialResponse:
+    return SourceMaterialResponse(
+        id=source_material.id,
+        requirement_id=source_material.requirement_id,
+        original_filename=source_material.original_filename,
+        extension=source_material.extension,
+        size_bytes=source_material.size_bytes,
+        content_hash=source_material.content_hash,
+        uploaded_at=source_material.uploaded_at.isoformat(),
+    )
+
+
+@app.post(
+    "/requirements/{requirement_id}/source-materials",
+    response_model=SourceMaterialsUploaded,
+    status_code=201,
+)
+async def upload_source_materials(
+    requirement_id: int, files: list[UploadFile] = File(...)
+) -> SourceMaterialsUploaded:
+    """Upload one or more source documents (past proposals, case studies,
+    capability statements) linked to ``requirement_id`` for later fact
+    extraction (Phase 2). Rejects the whole batch with 400 if any file is
+    empty or an unsupported type (.txt/.docx/.pdf only) — nothing is stored
+    unless every file in the request is valid.
+    """
+    with _SessionFactory() as session:
+        requirement = session.get(Requirement, requirement_id)
+        if requirement is None:
+            raise HTTPException(status_code=404, detail="requirement not found")
+
+        uploaded = [UploadedFile(filename=f.filename or "", raw=await f.read()) for f in files]
+        try:
+            stored = store_source_materials(session, requirement, uploaded)
+        except SourceMaterialUploadError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        session.commit()
+        for source_material in stored:
+            session.refresh(source_material)
+
+        return SourceMaterialsUploaded(
+            source_materials=[_source_material_response(sm) for sm in stored]
+        )
 
 
 @app.post(

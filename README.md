@@ -120,6 +120,18 @@ API key required:
 PYTHONPATH=src python examples/generate_outline_example.py
 ```
 
+Phase 2 begins with `POST /requirements/{id}/source-materials`, which accepts
+one or more source documents (past proposals, case studies, capability
+statements — `.txt`/`.docx`/`.pdf`, same multipart file upload convention as
+`/requirements`) and stores them linked to the owning requirement. Files are
+content-addressed on disk (sha256 of the bytes) under `SOURCE_MATERIALS_DIR`
+(defaulting to a local `./source_materials/` folder, same env-var-with-local-
+default convention as `DATABASE_URL`), so re-uploading identical content is a
+no-op rather than a duplicate. The whole batch is rejected (400) if any file
+is empty or an unsupported type, so a request never leaves a partial set of
+materials stored. Extracted text is persisted alongside each file for the
+fact-extraction step to draw cited claims from.
+
 ## 10. Evaluation
 
 Document evaluation metrics and how to reproduce them here (see `docs/evaluation.md`).

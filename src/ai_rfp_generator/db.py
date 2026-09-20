@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
@@ -39,6 +40,9 @@ class Requirement(Base):
         back_populates="requirement", cascade="all, delete-orphan", order_by="RequirementItem.position"
     )
     outlines: Mapped[list["Outline"]] = relationship(
+        back_populates="requirement", cascade="all, delete-orphan"
+    )
+    source_materials: Mapped[list["SourceMaterial"]] = relationship(
         back_populates="requirement", cascade="all, delete-orphan"
     )
 
@@ -123,6 +127,36 @@ class OutlineRevision(Base):
     sections_json: Mapped[str] = mapped_column(Text)
 
     outline: Mapped[Outline] = relationship(back_populates="revisions")
+
+
+class SourceMaterial(Base):
+    """An uploaded source document (past proposal, case study, capability
+    statement) linked to the :class:`Requirement` it will support fact
+    extraction for (Phase 2, see ``source_materials.store_source_materials``).
+
+    Content-addressed by ``content_hash`` (sha256 of the raw file bytes): the
+    stored file on disk is named after the hash, so re-uploading identical
+    content for the same requirement is idempotent instead of creating a
+    duplicate stored copy or row — the ``UniqueConstraint`` below enforces
+    that at the database level too. ``extracted_text`` is stored alongside
+    the raw file (same extraction used for requirement intake) so the later
+    fact-extraction step doesn't need to reparse the original document.
+    """
+
+    __tablename__ = "source_materials"
+    __table_args__ = (UniqueConstraint("requirement_id", "content_hash", name="uq_source_material_dedup"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    requirement_id: Mapped[int] = mapped_column(ForeignKey("requirements.id"), nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(255))
+    stored_path: Mapped[str] = mapped_column(String(1024))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    extension: Mapped[str] = mapped_column(String(16))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    extracted_text: Mapped[str] = mapped_column(Text)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    requirement: Mapped[Requirement] = relationship(back_populates="source_materials")
 
 
 def make_engine(database_url: str | None = None):
