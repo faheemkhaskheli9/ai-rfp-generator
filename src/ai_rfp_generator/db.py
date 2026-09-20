@@ -12,6 +12,7 @@ import os
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     Integer,
@@ -43,6 +44,9 @@ class Requirement(Base):
         back_populates="requirement", cascade="all, delete-orphan"
     )
     source_materials: Mapped[list["SourceMaterial"]] = relationship(
+        back_populates="requirement", cascade="all, delete-orphan"
+    )
+    facts: Mapped[list["Fact"]] = relationship(
         back_populates="requirement", cascade="all, delete-orphan"
     )
 
@@ -157,6 +161,47 @@ class SourceMaterial(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     requirement: Mapped[Requirement] = relationship(back_populates="source_materials")
+    facts: Mapped[list["Fact"]] = relationship(
+        back_populates="source_material", cascade="all, delete-orphan"
+    )
+
+
+class Fact(Base):
+    """A discrete fact/claim extracted from a :class:`SourceMaterial`'s text
+    (Phase 2, see ``facts.extract_and_persist_facts``).
+
+    ``source_material_id`` + ``start_offset``/``end_offset`` together are the
+    citation reference the validation pass (a later issue) traces a claim
+    back to: an exact character span into that source material's
+    ``extracted_text``. Facts are split out of the source text deterministically
+    (see ``facts.py``) rather than paraphrased by an LLM specifically so this
+    offset range always addresses a real, verifiable substring of the source
+    — a paraphrase couldn't be located back in the document by offset.
+
+    ``is_duplicate``/``duplicate_of_id`` *flag* an exact or near-duplicate
+    fact seen elsewhere for the same requirement rather than dropping it, so
+    the duplicate keeps its own citation trail back to its own document/
+    passage even though a canonical version already exists. ``duplicate_of``
+    always points at a non-duplicate root record (never chains through
+    another duplicate) so callers can follow it in one hop.
+    """
+
+    __tablename__ = "facts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    requirement_id: Mapped[int] = mapped_column(ForeignKey("requirements.id"), nullable=False)
+    source_material_id: Mapped[int] = mapped_column(ForeignKey("source_materials.id"), nullable=False)
+    text: Mapped[str] = mapped_column(Text)
+    normalized_text: Mapped[str] = mapped_column(Text)
+    start_offset: Mapped[int] = mapped_column(Integer)
+    end_offset: Mapped[int] = mapped_column(Integer)
+    is_duplicate: Mapped[bool] = mapped_column(Boolean, default=False)
+    duplicate_of_id: Mapped[int | None] = mapped_column(ForeignKey("facts.id"), nullable=True)
+    extracted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    requirement: Mapped[Requirement] = relationship(back_populates="facts")
+    source_material: Mapped[SourceMaterial] = relationship(back_populates="facts")
+    duplicate_of: Mapped["Fact | None"] = relationship(remote_side=[id])
 
 
 def make_engine(database_url: str | None = None):

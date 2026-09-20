@@ -18,6 +18,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from ai_rfp_generator.db import (
+    Fact,
     Outline,
     Requirement,
     RequirementItem,
@@ -26,6 +27,7 @@ from ai_rfp_generator.db import (
     make_session_factory,
     now_utc,
 )
+from ai_rfp_generator.facts import extract_and_persist_facts
 from ai_rfp_generator.normalize import NormalizationError, normalize_text
 from ai_rfp_generator.outline import (
     OpenAIOutlineClient,
@@ -85,6 +87,22 @@ class SourceMaterialResponse(BaseModel):
 
 class SourceMaterialsUploaded(BaseModel):
     source_materials: list[SourceMaterialResponse]
+
+
+class FactResponse(BaseModel):
+    id: int
+    requirement_id: int
+    source_material_id: int
+    text: str
+    start_offset: int
+    end_offset: int
+    is_duplicate: bool
+    duplicate_of_id: int | None
+    extracted_at: str
+
+
+class FactsExtracted(BaseModel):
+    facts: list[FactResponse]
 
 
 class OutlineSectionEdit(BaseModel):
@@ -193,6 +211,68 @@ async def upload_source_materials(
         return SourceMaterialsUploaded(
             source_materials=[_source_material_response(sm) for sm in stored]
         )
+
+
+def _fact_response(fact: Fact) -> FactResponse:
+    return FactResponse(
+        id=fact.id,
+        requirement_id=fact.requirement_id,
+        source_material_id=fact.source_material_id,
+        text=fact.text,
+        start_offset=fact.start_offset,
+        end_offset=fact.end_offset,
+        is_duplicate=fact.is_duplicate,
+        duplicate_of_id=fact.duplicate_of_id,
+        extracted_at=fact.extracted_at.isoformat(),
+    )
+
+
+@app.post("/requirements/{requirement_id}/facts", response_model=FactsExtracted, status_code=201)
+async def extract_requirement_facts(requirement_id: int) -> FactsExtracted:
+    """Extract cited facts from every source material uploaded for
+    ``requirement_id`` that hasn't been processed yet (a source material with
+    at least one existing ``Fact`` row is treated as already extracted, so
+    re-calling this is a no-op for materials already covered rather than
+    creating a fresh, redundant set of duplicate-flagged facts each time).
+    """
+    with _SessionFactory() as session:
+        requirement = session.get(Requirement, requirement_id)
+        if requirement is None:
+            raise HTTPException(status_code=404, detail="requirement not found")
+        if not requirement.source_materials:
+            raise HTTPException(
+                status_code=422, detail="requirement has no source materials to extract facts from"
+            )
+
+        newly_extracted: list[Fact] = []
+        for source_material in requirement.source_materials:
+            already_processed = (
+                session.query(Fact.id)
+                .filter(Fact.source_material_id == source_material.id)
+                .first()
+                is not None
+            )
+            if already_processed:
+                continue
+            newly_extracted.extend(extract_and_persist_facts(session, source_material))
+
+        session.commit()
+        for fact in newly_extracted:
+            session.refresh(fact)
+
+        return FactsExtracted(facts=[_fact_response(f) for f in newly_extracted])
+
+
+@app.get("/requirements/{requirement_id}/facts", response_model=FactsExtracted)
+async def list_requirement_facts(requirement_id: int) -> FactsExtracted:
+    """List every fact extracted so far for ``requirement_id``, each with its
+    citation reference, for the later validation pass to consume.
+    """
+    with _SessionFactory() as session:
+        requirement = session.get(Requirement, requirement_id)
+        if requirement is None:
+            raise HTTPException(status_code=404, detail="requirement not found")
+        return FactsExtracted(facts=[_fact_response(f) for f in requirement.facts])
 
 
 @app.post(
