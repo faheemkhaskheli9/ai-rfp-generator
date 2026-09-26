@@ -49,6 +49,9 @@ class Requirement(Base):
     facts: Mapped[list["Fact"]] = relationship(
         back_populates="requirement", cascade="all, delete-orphan"
     )
+    draft_sections: Mapped[list["DraftSection"]] = relationship(
+        back_populates="requirement", cascade="all, delete-orphan"
+    )
 
 
 class RequirementItem(Base):
@@ -111,6 +114,9 @@ class OutlineSection(Base):
     description: Mapped[str] = mapped_column(Text)
 
     outline: Mapped[Outline] = relationship(back_populates="sections")
+    drafts: Mapped[list["DraftSection"]] = relationship(
+        back_populates="outline_section", cascade="all, delete-orphan"
+    )
 
 
 class OutlineRevision(Base):
@@ -202,6 +208,31 @@ class Fact(Base):
     requirement: Mapped[Requirement] = relationship(back_populates="facts")
     source_material: Mapped[SourceMaterial] = relationship(back_populates="facts")
     duplicate_of: Mapped["Fact | None"] = relationship(remote_side=[id])
+
+
+
+class DraftSection(Base):
+    """A generated response draft for one approved outline section.
+
+    Drafts are immutable versions: regenerating a section creates another row
+    instead of overwriting previous output. fact_ids_json stores the fact
+    identifiers made available to the model so citations can be validated
+    later without reconstructing retrieval state.
+    """
+
+    __tablename__ = "draft_sections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    requirement_id: Mapped[int] = mapped_column(ForeignKey("requirements.id"), nullable=False)
+    outline_section_id: Mapped[int] = mapped_column(ForeignKey("outline_sections.id"), nullable=False)
+    strategy: Mapped[str] = mapped_column(String(64), default="grounded")
+    model: Mapped[str] = mapped_column(String(128))
+    content: Mapped[str] = mapped_column(Text)
+    fact_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    requirement: Mapped[Requirement] = relationship(back_populates="draft_sections")
+    outline_section: Mapped[OutlineSection] = relationship(back_populates="drafts")
 
 
 def make_engine(database_url: str | None = None):
