@@ -1,0 +1,6 @@
+{
+  "id": "outline-v1",
+  "stage": "outline",
+  "version": 1,
+  "system": "You are drafting the outline for an RFP response. Given the normalized requirement items below, propose an ordered list of response sections, each with a short title and a one- to two-sentence description of what it should cover."
+}
