@@ -18,6 +18,7 @@ from typing import Protocol
 
 from ai_rfp_generator.db import DraftSection, Fact, OutlineSection
 from ai_rfp_generator.outline import require_outline_approved
+from ai_rfp_generator.prompts import load_prompt
 
 DEFAULT_MODEL = "gpt-4o-mini"
 STRATEGY_INSTRUCTIONS = {
@@ -93,9 +94,11 @@ def generate_section_draft(
     strategy: str = "detailed",
 ) -> DraftResult:
     require_outline_approved(section.outline)
-    if strategy not in STRATEGY_INSTRUCTIONS:
+    prompt = load_prompt("drafting")
+    strategies = prompt.get("strategies", STRATEGY_INSTRUCTIONS)
+    if strategy not in strategies:
         raise SectionDraftingError(
-            f"unknown drafting strategy {strategy!r}; choose from {sorted(STRATEGY_INSTRUCTIONS)}"
+            f"unknown drafting strategy {strategy!r}; choose from {sorted(strategies)}"
         )
 
     relevant = retrieve_relevant_facts(section, facts, limit=max_facts)
@@ -157,19 +160,15 @@ class OpenAISectionDraftingClient:
         strategy: str,
     ) -> str:
         evidence = "\n".join(f"[F{fact.id}] {fact.text}" for fact in facts)
+        prompt = load_prompt("drafting")
+        strategies = prompt.get("strategies", STRATEGY_INSTRUCTIONS)
         response = self._client.chat.completions.create(
             model=self._model,
             temperature=0,
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "Write one RFP response section using only the supplied evidence. "
-                        "Do not invent facts. Cite every factual claim with one or more "
-                        "inline markers exactly like [F12]. If evidence is insufficient, "
-                        "state the limitation instead of guessing. "
-                        + STRATEGY_INSTRUCTIONS[strategy]
-                    ),
+                    "content": prompt["system"] + " " + strategies[strategy],
                 },
                 {
                     "role": "user",
