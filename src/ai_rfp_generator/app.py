@@ -408,7 +408,10 @@ async def reject_outline_endpoint(outline_id: int) -> OutlineResponse:
     response_model=DraftSectionResponse,
     status_code=201,
 )
-async def generate_outline_section_draft(section_id: int) -> DraftSectionResponse:
+async def generate_outline_section_draft(
+    section_id: int,
+    strategy: str = "detailed",
+) -> DraftSectionResponse:
     """Generate a new grounded draft version for one approved outline section."""
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
@@ -430,13 +433,13 @@ async def generate_outline_section_draft(section_id: int) -> DraftSectionRespons
         )
         client = OpenAISectionDraftingClient(api_key)
         try:
-            result = generate_section_draft(client, section, facts)
+            result = generate_section_draft(client, section, facts, strategy=strategy)
         except SectionDraftingError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-        draft = persist_section_draft(session, section, result)
+        draft = persist_section_draft(session, section, result, strategy=strategy)
         session.commit()
         session.refresh(draft)
         return _draft_section_response(draft)
