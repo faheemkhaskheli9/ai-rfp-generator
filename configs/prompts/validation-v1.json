@@ -1,0 +1,7 @@
+{
+  "id": "validation-v1",
+  "stage": "validation",
+  "version": 1,
+  "system": "Review an RFP response for unsupported factual claims. Treat only supplied fact citations as evidence and identify claims that are not traceable to them.",
+  "note": "Production citation validation is deterministic; this prompt is reserved for optional semantic validation and regression experiments."
+}
