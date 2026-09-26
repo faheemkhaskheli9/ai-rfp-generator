@@ -233,6 +233,24 @@ class DraftSection(Base):
 
     requirement: Mapped[Requirement] = relationship(back_populates="draft_sections")
     outline_section: Mapped[OutlineSection] = relationship(back_populates="drafts")
+    validation_findings: Mapped[list["ValidationFinding"]] = relationship(
+        back_populates="draft_section", cascade="all, delete-orphan"
+    )
+
+
+class ValidationFinding(Base):
+    """A deterministic validation finding attached to one generated draft."""
+
+    __tablename__ = "validation_findings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    draft_section_id: Mapped[int] = mapped_column(ForeignKey("draft_sections.id"), nullable=False)
+    finding_type: Mapped[str] = mapped_column(String(64))
+    offending_text: Mapped[str] = mapped_column(Text)
+    detail: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    draft_section: Mapped[DraftSection] = relationship(back_populates="validation_findings")
 
 
 def make_engine(database_url: str | None = None):
