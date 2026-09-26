@@ -159,6 +159,16 @@ docker run -p 8000:8000 ai-rfp-generator
 pytest tests/
 ```
 
+### Prompt regression tests
+
+Prompt behavior is regression-tested offline with fake model clients, so CI does not require API credentials or spend model tokens:
+
+```bash
+PYTHONPATH=src python scripts/run_prompt_tests.py
+```
+
+Test cases live in `configs/prompt_test_cases.json`. Each case records the pipeline stage, prompt/version identifier, deterministic input/fake output, and expected structural checks.
+
 ## 15. Limitations
 
 - This is a from-scratch, independent recreation built for portfolio purposes.
