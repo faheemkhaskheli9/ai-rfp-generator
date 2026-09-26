@@ -153,6 +153,21 @@ docker build -t ai-rfp-generator .
 docker run -p 8000:8000 ai-rfp-generator
 ```
 
+## Database migrations
+
+Alembic is used for production schema upgrades.
+
+For a local or deployed database:
+
+```bash
+export DATABASE_URL=postgresql+psycopg://...
+alembic upgrade head
+```
+
+The baseline migration is adoption-safe: it creates missing tables and adds the newer draft-review columns to an older `draft_sections` table without dropping existing data. Run migrations before starting a new application version.
+
+For local throwaway development databases, the application still calls SQLAlchemy `create_all` so tests and simple local runs need no migration bootstrap.
+
 ## 14. Tests
 
 ```bash
