@@ -32,8 +32,16 @@ class FakeDraftClient:
         self.content = content
         self.seen_fact_ids: list[int] = []
 
-    def generate(self, *, section_title: str, section_description: str, facts: list[Fact]) -> str:
+    def generate(
+        self,
+        *,
+        section_title: str,
+        section_description: str,
+        facts: list[Fact],
+        strategy: str,
+    ) -> str:
         self.seen_fact_ids = [f.id for f in facts]
+        self.strategy = strategy
         return self.content
 
 
@@ -161,3 +169,32 @@ def test_drafts_are_persisted_as_immutable_versions(drafting_case):
     assert draft_a.model == "fake-model"
     assert json.loads(draft_a.fact_ids_json) == [encryption.id]
     assert len(section.drafts) == 2
+
+
+def test_generation_strategy_is_selectable_and_persisted(drafting_case):
+    session, _, _, section, encryption, _ = drafting_case
+    client = FakeDraftClient(f"Encrypted at rest [F{encryption.id}].")
+
+    result = generate_section_draft(
+        client,
+        section,
+        [encryption],
+        strategy="concise",
+    )
+    draft = persist_section_draft(session, section, result, strategy="concise")
+    session.commit()
+
+    assert client.strategy == "concise"
+    assert draft.strategy == "concise"
+
+
+def test_unknown_generation_strategy_is_rejected(drafting_case):
+    _, _, _, section, encryption, _ = drafting_case
+
+    with pytest.raises(SectionDraftingError, match="unknown drafting strategy"):
+        generate_section_draft(
+            FakeDraftClient(f"Encrypted [F{encryption.id}]"),
+            section,
+            [encryption],
+            strategy="unsupported",
+        )
