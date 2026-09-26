@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from typing import Protocol
 
 from ai_rfp_generator.db import Outline, OutlineRevision, OutlineSection, Requirement, RequirementItem
+from ai_rfp_generator.prompts import load_prompt
 
 DEFAULT_MODEL = "gpt-4o-mini"
 
@@ -266,19 +267,12 @@ class OpenAIOutlineClient:
             "additionalProperties": False,
         }
 
+        prompt = load_prompt("outline")
         response = self._client.chat.completions.create(
             model=self._model,
             temperature=0,
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are drafting the outline for an RFP response. Given the "
-                        "normalized requirement items below, propose an ordered list "
-                        "of response sections, each with a short title and a one- to "
-                        "two-sentence description of what it should cover."
-                    ),
-                },
+                {"role": "system", "content": prompt["system"]},
                 {"role": "user", "content": requirement_text},
             ],
             response_format={
