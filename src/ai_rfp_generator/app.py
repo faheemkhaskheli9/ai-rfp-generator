@@ -38,7 +38,13 @@ from ai_rfp_generator.drafting import (
     persist_section_draft,
 )
 from ai_rfp_generator.evaluation import replace_evaluation_scores
-from ai_rfp_generator.export import DOCX_CONTENT_TYPE, ExportError, build_docx
+from ai_rfp_generator.export import (
+    DOCX_CONTENT_TYPE,
+    PDF_CONTENT_TYPE,
+    ExportError,
+    build_docx,
+    build_pdf,
+)
 from ai_rfp_generator.facts import extract_and_persist_facts
 from ai_rfp_generator.normalize import NormalizationError, normalize_text
 from ai_rfp_generator.outline import (
@@ -463,20 +469,26 @@ async def reject_outline_endpoint(outline_id: int) -> OutlineResponse:
 @app.post("/outlines/{outline_id}/export")
 async def export_outline(outline_id: int, format: str = "docx") -> Response:
     """Export the finalized outline response as a downloadable document."""
-    if format.lower() != "docx":
-        raise HTTPException(status_code=400, detail="supported export format: docx")
+    selected = format.lower()
+    if selected not in {"docx", "pdf"}:
+        raise HTTPException(status_code=400, detail="supported export formats: docx, pdf")
 
     with _SessionFactory() as session:
         outline = _get_outline_or_404(session, outline_id)
         try:
-            payload = build_docx(outline)
+            if selected == "docx":
+                payload = build_docx(outline)
+                media_type = DOCX_CONTENT_TYPE
+            else:
+                payload = build_pdf(outline)
+                media_type = PDF_CONTENT_TYPE
         except ExportError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-        filename = f"rfp-response-{outline.requirement_id}.docx"
+        filename = f"rfp-response-{outline.requirement_id}.{selected}"
         return Response(
             content=payload,
-            media_type=DOCX_CONTENT_TYPE,
+            media_type=media_type,
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
