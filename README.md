@@ -159,6 +159,28 @@ docker run -p 8000:8000 ai-rfp-generator
 pytest tests/
 ```
 
+### Versioned prompt catalog
+
+Active prompt versions are configured in `configs/prompts/active.json`. Each prompt lives in its own versioned JSON file, for example:
+
+```text
+configs/prompts/
+├── active.json
+├── outline-v1.json
+├── drafting-v1.json
+└── validation-v1.json
+```
+
+To add a new prompt version:
+
+1. Copy the existing stage prompt to a new versioned file such as `outline-v2.json`.
+2. Change its `id`, `version`, and prompt text.
+3. Point the relevant stage in `active.json` to the new ID.
+4. Add/update a case in `configs/prompt_test_cases.json`.
+5. Run the regression suite before committing.
+
+The application loads the active outline and drafting prompts at runtime. `PROMPT_CONFIG_DIR` can point to another prompt directory for experiments or deployment-specific configuration without changing application code. Citation validation remains deterministic; `validation-v1.json` is available for optional semantic validation experiments and regression tests.
+
 ### Prompt regression tests
 
 Prompt behavior is regression-tested offline with fake model clients, so CI does not require API credentials or spend model tokens:
