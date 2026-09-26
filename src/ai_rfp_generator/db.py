@@ -230,6 +230,8 @@ class DraftSection(Base):
     content: Mapped[str] = mapped_column(Text)
     fact_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     requirement: Mapped[Requirement] = relationship(back_populates="draft_sections")
     outline_section: Mapped[OutlineSection] = relationship(back_populates="drafts")
