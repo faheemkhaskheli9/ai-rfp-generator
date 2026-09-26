@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from ai_rfp_generator.db import (
     DraftSection,
+    EvaluationScore,
     Fact,
     Outline,
     OutlineSection,
@@ -36,6 +37,7 @@ from ai_rfp_generator.drafting import (
     generate_section_draft,
     persist_section_draft,
 )
+from ai_rfp_generator.evaluation import replace_evaluation_scores
 from ai_rfp_generator.facts import extract_and_persist_facts
 from ai_rfp_generator.normalize import NormalizationError, normalize_text
 from ai_rfp_generator.outline import (
@@ -152,6 +154,27 @@ class ValidationResponse(BaseModel):
     draft_section_id: int
     valid: bool
     findings: list[ValidationFindingResponse]
+
+
+class EvaluationScoreResponse(BaseModel):
+    criterion: str
+    score: int
+    detail: str
+    created_at: str
+
+
+class EvaluationResponse(BaseModel):
+    draft_section_id: int
+    scores: list[EvaluationScoreResponse]
+
+
+def _evaluation_score_response(score: EvaluationScore) -> EvaluationScoreResponse:
+    return EvaluationScoreResponse(
+        criterion=score.criterion,
+        score=score.score,
+        detail=score.detail,
+        created_at=score.created_at.isoformat(),
+    )
 
 
 def _validation_finding_response(finding: ValidationFinding) -> ValidationFindingResponse:
@@ -533,6 +556,48 @@ async def get_draft_section_validation(draft_id: int) -> ValidationResponse:
             draft_section_id=draft.id,
             valid=not findings,
             findings=[_validation_finding_response(f) for f in findings],
+        )
+
+
+@app.post("/draft-sections/{draft_id}/evaluate", response_model=EvaluationResponse)
+async def evaluate_draft_section(draft_id: int) -> EvaluationResponse:
+    """Evaluate a generated draft against the deterministic rubric."""
+    with _SessionFactory() as session:
+        draft = session.get(DraftSection, draft_id)
+        if draft is None:
+            raise HTTPException(status_code=404, detail="draft section not found")
+        facts = (
+            session.query(Fact)
+            .filter(Fact.requirement_id == draft.requirement_id)
+            .order_by(Fact.id)
+            .all()
+        )
+        scores = replace_evaluation_scores(session, draft, facts)
+        session.commit()
+        for score in scores:
+            session.refresh(score)
+        return EvaluationResponse(
+            draft_section_id=draft.id,
+            scores=[_evaluation_score_response(s) for s in scores],
+        )
+
+
+@app.get("/draft-sections/{draft_id}/evaluation", response_model=EvaluationResponse)
+async def get_draft_section_evaluation(draft_id: int) -> EvaluationResponse:
+    """Return persisted evaluation scores for a generated draft."""
+    with _SessionFactory() as session:
+        draft = session.get(DraftSection, draft_id)
+        if draft is None:
+            raise HTTPException(status_code=404, detail="draft section not found")
+        scores = (
+            session.query(EvaluationScore)
+            .filter(EvaluationScore.draft_section_id == draft_id)
+            .order_by(EvaluationScore.criterion)
+            .all()
+        )
+        return EvaluationResponse(
+            draft_section_id=draft.id,
+            scores=[_evaluation_score_response(s) for s in scores],
         )
 
 
