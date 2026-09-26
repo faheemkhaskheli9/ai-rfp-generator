@@ -90,6 +90,10 @@ def test_pdf_export_is_well_formed_and_preserves_section_order(client):
     assert len(reader.pages) >= 1
     text = "\n".join(page.extract_text() or "" for page in reader.pages)
 
+    assert "RFP Response" in text
+    assert "Table of Contents" in text
+    assert "1. Solution Overview" in text
+    assert "2. Implementation" in text
     assert "Solution Overview" in text
     assert "Implementation" in text
     assert text.index("Solution Overview") < text.index("Implementation")
