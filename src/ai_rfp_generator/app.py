@@ -18,14 +18,22 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from ai_rfp_generator.db import (
+    DraftSection,
     Fact,
     Outline,
+    OutlineSection,
     Requirement,
     RequirementItem,
     SourceMaterial,
     make_engine,
     make_session_factory,
     now_utc,
+)
+from ai_rfp_generator.drafting import (
+    OpenAISectionDraftingClient,
+    SectionDraftingError,
+    generate_section_draft,
+    persist_section_draft,
 )
 from ai_rfp_generator.facts import extract_and_persist_facts
 from ai_rfp_generator.normalize import NormalizationError, normalize_text
@@ -112,6 +120,36 @@ class OutlineSectionEdit(BaseModel):
 
 class OutlineEditRequest(BaseModel):
     sections: list[OutlineSectionEdit]
+
+
+class DraftSectionResponse(BaseModel):
+    id: int
+    requirement_id: int
+    outline_section_id: int
+    strategy: str
+    model: str
+    content: str
+    fact_ids: list[int]
+    generated_at: str
+
+
+class DraftSectionsResponse(BaseModel):
+    drafts: list[DraftSectionResponse]
+
+
+def _draft_section_response(draft: DraftSection) -> DraftSectionResponse:
+    import json
+
+    return DraftSectionResponse(
+        id=draft.id,
+        requirement_id=draft.requirement_id,
+        outline_section_id=draft.outline_section_id,
+        strategy=draft.strategy,
+        model=draft.model,
+        content=draft.content,
+        fact_ids=json.loads(draft.fact_ids_json),
+        generated_at=draft.generated_at.isoformat(),
+    )
 
 
 def _outline_response(outline: Outline) -> "OutlineResponse":
@@ -363,6 +401,64 @@ async def reject_outline_endpoint(outline_id: int) -> OutlineResponse:
         session.commit()
         session.refresh(outline)
         return _outline_response(outline)
+
+
+@app.post(
+    "/outline-sections/{section_id}/drafts",
+    response_model=DraftSectionResponse,
+    status_code=201,
+)
+async def generate_outline_section_draft(section_id: int) -> DraftSectionResponse:
+    """Generate a new grounded draft version for one approved outline section."""
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="section drafting unavailable: OPENAI_API_KEY not set",
+        )
+
+    with _SessionFactory() as session:
+        section = session.get(OutlineSection, section_id)
+        if section is None:
+            raise HTTPException(status_code=404, detail="outline section not found")
+
+        facts = (
+            session.query(Fact)
+            .filter(Fact.requirement_id == section.outline.requirement_id)
+            .order_by(Fact.id)
+            .all()
+        )
+        client = OpenAISectionDraftingClient(api_key)
+        try:
+            result = generate_section_draft(client, section, facts)
+        except SectionDraftingError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        draft = persist_section_draft(session, section, result)
+        session.commit()
+        session.refresh(draft)
+        return _draft_section_response(draft)
+
+
+@app.get(
+    "/outline-sections/{section_id}/drafts",
+    response_model=DraftSectionsResponse,
+)
+async def list_outline_section_drafts(section_id: int) -> DraftSectionsResponse:
+    """Return all immutable draft versions for an outline section."""
+    with _SessionFactory() as session:
+        section = session.get(OutlineSection, section_id)
+        if section is None:
+            raise HTTPException(status_code=404, detail="outline section not found")
+        drafts = (
+            session.query(DraftSection)
+            .filter(DraftSection.outline_section_id == section_id)
+            .order_by(DraftSection.generated_at, DraftSection.id)
+            .all()
+        )
+        return DraftSectionsResponse(drafts=[_draft_section_response(d) for d in drafts])
 
 
 def _normalize_and_store(session, requirement: Requirement) -> None:
