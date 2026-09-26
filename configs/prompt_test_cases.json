@@ -4,7 +4,7 @@
     {
       "id": "outline-basic",
       "stage": "outline",
-      "prompt_version": "inline-v1",
+      "prompt_version": "outline-v1",
       "input": {
         "items": [
           {
@@ -35,7 +35,7 @@
     {
       "id": "drafting-citations",
       "stage": "drafting",
-      "prompt_version": "inline-v1",
+      "prompt_version": "drafting-v1",
       "input": {
         "section_title": "Security",
         "section_description": "Describe encryption.",
@@ -52,7 +52,7 @@
     {
       "id": "validation-uncited",
       "stage": "validation",
-      "prompt_version": "deterministic-v1",
+      "prompt_version": "validation-v1",
       "input": {
         "fact": "Data is encrypted at rest.",
         "draft": "Data is encrypted at rest [F1]. We guarantee zero downtime."
