@@ -51,6 +51,7 @@ from ai_rfp_generator.outline import (
     reject_outline,
 )
 from ai_rfp_generator.parsing import UnsupportedFileTypeError, extract_text
+from ai_rfp_generator.review import approve_draft, reject_draft
 from ai_rfp_generator.validation import replace_validation_findings
 from ai_rfp_generator.source_materials import (
     SourceMaterialUploadError,
@@ -135,6 +136,8 @@ class DraftSectionResponse(BaseModel):
     content: str
     fact_ids: list[int]
     generated_at: str
+    status: str
+    reviewed_at: str | None
 
 
 class DraftSectionsResponse(BaseModel):
@@ -200,6 +203,8 @@ def _draft_section_response(draft: DraftSection) -> DraftSectionResponse:
         content=draft.content,
         fact_ids=json.loads(draft.fact_ids_json),
         generated_at=draft.generated_at.isoformat(),
+        status=draft.status,
+        reviewed_at=draft.reviewed_at.isoformat() if draft.reviewed_at else None,
     )
 
 
@@ -513,6 +518,33 @@ async def list_outline_section_drafts(section_id: int) -> DraftSectionsResponse:
             .all()
         )
         return DraftSectionsResponse(drafts=[_draft_section_response(d) for d in drafts])
+
+
+@app.post("/draft-sections/{draft_id}/approve", response_model=DraftSectionResponse)
+async def approve_draft_section(draft_id: int) -> DraftSectionResponse:
+    """Approve this draft as the single submission candidate for its section."""
+    with _SessionFactory() as session:
+        draft = session.get(DraftSection, draft_id)
+        if draft is None:
+            raise HTTPException(status_code=404, detail="draft section not found")
+        approve_draft(session, draft)
+        session.commit()
+        session.refresh(draft)
+        return _draft_section_response(draft)
+
+
+@app.post("/draft-sections/{draft_id}/reject", response_model=DraftSectionResponse)
+async def reject_draft_section(draft_id: int) -> DraftSectionResponse:
+    """Reject one generated draft version."""
+    with _SessionFactory() as session:
+        draft = session.get(DraftSection, draft_id)
+        if draft is None:
+            raise HTTPException(status_code=404, detail="draft section not found")
+        reject_draft(draft)
+        session.commit()
+        session.refresh(draft)
+        return _draft_section_response(draft)
+
 
 
 @app.post("/draft-sections/{draft_id}/validate", response_model=ValidationResponse)
