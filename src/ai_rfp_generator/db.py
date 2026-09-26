@@ -236,6 +236,9 @@ class DraftSection(Base):
     validation_findings: Mapped[list["ValidationFinding"]] = relationship(
         back_populates="draft_section", cascade="all, delete-orphan"
     )
+    evaluation_scores: Mapped[list["EvaluationScore"]] = relationship(
+        back_populates="draft_section", cascade="all, delete-orphan"
+    )
 
 
 class ValidationFinding(Base):
@@ -251,6 +254,22 @@ class ValidationFinding(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     draft_section: Mapped[DraftSection] = relationship(back_populates="validation_findings")
+
+
+
+class EvaluationScore(Base):
+    """One persisted rubric score for a generated draft."""
+
+    __tablename__ = "evaluation_scores"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    draft_section_id: Mapped[int] = mapped_column(ForeignKey("draft_sections.id"), nullable=False)
+    criterion: Mapped[str] = mapped_column(String(64))
+    score: Mapped[int] = mapped_column(Integer)
+    detail: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    draft_section: Mapped[DraftSection] = relationship(back_populates="evaluation_scores")
 
 
 def make_engine(database_url: str | None = None):
