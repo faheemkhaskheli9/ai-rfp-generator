@@ -9,5 +9,6 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
+      - run: DATABASE_URL=sqlite:///./migration-smoke.db alembic upgrade head
       - run: pytest tests/
       - run: PYTHONPATH=src python scripts/run_prompt_tests.py
