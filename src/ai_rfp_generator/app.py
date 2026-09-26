@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import os
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
 from ai_rfp_generator.db import (
@@ -38,6 +38,7 @@ from ai_rfp_generator.drafting import (
     persist_section_draft,
 )
 from ai_rfp_generator.evaluation import replace_evaluation_scores
+from ai_rfp_generator.export import DOCX_CONTENT_TYPE, ExportError, build_docx
 from ai_rfp_generator.facts import extract_and_persist_facts
 from ai_rfp_generator.normalize import NormalizationError, normalize_text
 from ai_rfp_generator.outline import (
@@ -457,6 +458,27 @@ async def reject_outline_endpoint(outline_id: int) -> OutlineResponse:
         session.commit()
         session.refresh(outline)
         return _outline_response(outline)
+
+
+@app.post("/outlines/{outline_id}/export")
+async def export_outline(outline_id: int, format: str = "docx") -> Response:
+    """Export the finalized outline response as a downloadable document."""
+    if format.lower() != "docx":
+        raise HTTPException(status_code=400, detail="supported export format: docx")
+
+    with _SessionFactory() as session:
+        outline = _get_outline_or_404(session, outline_id)
+        try:
+            payload = build_docx(outline)
+        except ExportError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        filename = f"rfp-response-{outline.requirement_id}.docx"
+        return Response(
+            content=payload,
+            media_type=DOCX_CONTENT_TYPE,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
 
 @app.post(
