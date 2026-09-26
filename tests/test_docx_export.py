@@ -108,9 +108,13 @@ def test_docx_export_preserves_outline_order_and_headings(client):
         for paragraph in document.paragraphs
         if paragraph.style.name == "Heading 1"
     ]
-    assert headings == ["Proposed Solution", "Security"]
+    assert headings == ["Table of Contents", "Proposed Solution", "Security"]
 
     text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+    assert "RFP Response" in text
+    assert "Table of Contents" in text
+    assert "1. Proposed Solution" in text
+    assert "2. Security" in text
     assert "VALIDATION WARNING:" in text
     assert "Our proposed solution addresses the requested capabilities." in text
 
