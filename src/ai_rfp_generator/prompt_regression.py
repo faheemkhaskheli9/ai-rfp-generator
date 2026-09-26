@@ -14,6 +14,7 @@ from typing import Any
 from ai_rfp_generator.db import DraftSection, Fact, Outline, OutlineSection, RequirementItem, now_utc
 from ai_rfp_generator.drafting import generate_section_draft
 from ai_rfp_generator.outline import generate_outline
+from ai_rfp_generator.prompts import load_prompt
 from ai_rfp_generator.validation import validate_draft
 
 
@@ -153,8 +154,10 @@ def run_cases(cases: list[dict[str, Any]]) -> list[CaseResult]:
             results.append(CaseResult(case_id, False, f"unknown stage: {stage!r}"))
             continue
         try:
-            if not case.get("prompt_version"):
+            prompt_version = case.get("prompt_version")
+            if not prompt_version:
                 raise AssertionError("prompt_version is required")
+            load_prompt(stage, prompt_id=prompt_version)
             runner(case)
         except Exception as exc:
             results.append(CaseResult(case_id, False, str(exc)))
