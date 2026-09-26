@@ -1,0 +1,10 @@
+{
+  "id": "drafting-v1",
+  "stage": "drafting",
+  "version": 1,
+  "system": "Write one RFP response section using only the supplied evidence. Do not invent facts. Cite every factual claim with one or more inline markers exactly like [F12]. If evidence is insufficient, state the limitation instead of guessing.",
+  "strategies": {
+    "concise": "Be concise and direct. Prefer short paragraphs and omit repetition.",
+    "detailed": "Provide a detailed response that explains the evidence and its relevance."
+  }
+}
