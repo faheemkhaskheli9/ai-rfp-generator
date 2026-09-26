@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "outline-basic",
+      "stage": "outline",
+      "prompt_version": "inline-v1",
+      "input": {
+        "items": [
+          {
+            "item_type": "requirement",
+            "content": "Describe cloud hosting."
+          },
+          {
+            "item_type": "requirement",
+            "content": "Explain security controls."
+          }
+        ],
+        "fake_output": [
+          {
+            "title": "Hosting",
+            "description": "Describe the hosting approach."
+          },
+          {
+            "title": "Security",
+            "description": "Describe security controls."
+          }
+        ]
+      },
+      "expect": {
+        "min_sections": 2,
+        "titles_nonempty": true
+      }
+    },
+    {
+      "id": "drafting-citations",
+      "stage": "drafting",
+      "prompt_version": "inline-v1",
+      "input": {
+        "section_title": "Security",
+        "section_description": "Describe encryption.",
+        "facts": [
+          "Data is encrypted at rest."
+        ],
+        "fake_output": "Data is encrypted at rest [F1]."
+      },
+      "expect": {
+        "citations_required": true,
+        "valid": true
+      }
+    },
+    {
+      "id": "validation-uncited",
+      "stage": "validation",
+      "prompt_version": "deterministic-v1",
+      "input": {
+        "fact": "Data is encrypted at rest.",
+        "draft": "Data is encrypted at rest [F1]. We guarantee zero downtime."
+      },
+      "expect": {
+        "finding_types": [
+          "uncited_claim"
+        ]
+      }
+    }
+  ]
+}
