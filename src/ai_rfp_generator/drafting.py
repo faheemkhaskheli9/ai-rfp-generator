@@ -20,6 +20,10 @@ from ai_rfp_generator.db import DraftSection, Fact, OutlineSection
 from ai_rfp_generator.outline import require_outline_approved
 
 DEFAULT_MODEL = "gpt-4o-mini"
+STRATEGY_INSTRUCTIONS = {
+    "concise": "Be concise and direct. Prefer short paragraphs and omit repetition.",
+    "detailed": "Provide a detailed response that explains the evidence and its relevance.",
+}
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 _CITATION_RE = re.compile(r"\[F(\d+)\]")
 
@@ -32,7 +36,14 @@ class SectionDraftingClient(Protocol):
     @property
     def model_name(self) -> str: ...
 
-    def generate(self, *, section_title: str, section_description: str, facts: list[Fact]) -> str: ...
+    def generate(
+        self,
+        *,
+        section_title: str,
+        section_description: str,
+        facts: list[Fact],
+        strategy: str,
+    ) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -79,8 +90,14 @@ def generate_section_draft(
     facts: list[Fact],
     *,
     max_facts: int = 8,
+    strategy: str = "detailed",
 ) -> DraftResult:
     require_outline_approved(section.outline)
+    if strategy not in STRATEGY_INSTRUCTIONS:
+        raise SectionDraftingError(
+            f"unknown drafting strategy {strategy!r}; choose from {sorted(STRATEGY_INSTRUCTIONS)}"
+        )
+
     relevant = retrieve_relevant_facts(section, facts, limit=max_facts)
     if not relevant:
         raise SectionDraftingError("no extracted facts are available for grounded drafting")
@@ -89,6 +106,7 @@ def generate_section_draft(
         section_title=section.title,
         section_description=section.description,
         facts=relevant,
+        strategy=strategy,
     ).strip()
     if not content:
         raise SectionDraftingError("section generator returned empty content")
@@ -130,7 +148,14 @@ class OpenAISectionDraftingClient:
     def model_name(self) -> str:
         return self._model
 
-    def generate(self, *, section_title: str, section_description: str, facts: list[Fact]) -> str:
+    def generate(
+        self,
+        *,
+        section_title: str,
+        section_description: str,
+        facts: list[Fact],
+        strategy: str,
+    ) -> str:
         evidence = "\n".join(f"[F{fact.id}] {fact.text}" for fact in facts)
         response = self._client.chat.completions.create(
             model=self._model,
@@ -142,7 +167,8 @@ class OpenAISectionDraftingClient:
                         "Write one RFP response section using only the supplied evidence. "
                         "Do not invent facts. Cite every factual claim with one or more "
                         "inline markers exactly like [F12]. If evidence is insufficient, "
-                        "state the limitation instead of guessing."
+                        "state the limitation instead of guessing. "
+                        + STRATEGY_INSTRUCTIONS[strategy]
                     ),
                 },
                 {
