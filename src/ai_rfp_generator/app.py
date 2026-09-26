@@ -25,6 +25,7 @@ from ai_rfp_generator.db import (
     Requirement,
     RequirementItem,
     SourceMaterial,
+    ValidationFinding,
     make_engine,
     make_session_factory,
     now_utc,
@@ -48,6 +49,7 @@ from ai_rfp_generator.outline import (
     reject_outline,
 )
 from ai_rfp_generator.parsing import UnsupportedFileTypeError, extract_text
+from ai_rfp_generator.validation import replace_validation_findings
 from ai_rfp_generator.source_materials import (
     SourceMaterialUploadError,
     UploadedFile,
@@ -135,6 +137,32 @@ class DraftSectionResponse(BaseModel):
 
 class DraftSectionsResponse(BaseModel):
     drafts: list[DraftSectionResponse]
+
+
+class ValidationFindingResponse(BaseModel):
+    id: int
+    draft_section_id: int
+    finding_type: str
+    offending_text: str
+    detail: str
+    created_at: str
+
+
+class ValidationResponse(BaseModel):
+    draft_section_id: int
+    valid: bool
+    findings: list[ValidationFindingResponse]
+
+
+def _validation_finding_response(finding: ValidationFinding) -> ValidationFindingResponse:
+    return ValidationFindingResponse(
+        id=finding.id,
+        draft_section_id=finding.draft_section_id,
+        finding_type=finding.finding_type,
+        offending_text=finding.offending_text,
+        detail=finding.detail,
+        created_at=finding.created_at.isoformat(),
+    )
 
 
 def _draft_section_response(draft: DraftSection) -> DraftSectionResponse:
@@ -462,6 +490,50 @@ async def list_outline_section_drafts(section_id: int) -> DraftSectionsResponse:
             .all()
         )
         return DraftSectionsResponse(drafts=[_draft_section_response(d) for d in drafts])
+
+
+@app.post("/draft-sections/{draft_id}/validate", response_model=ValidationResponse)
+async def validate_draft_section(draft_id: int) -> ValidationResponse:
+    """Run deterministic citation validation and persist the latest findings."""
+    with _SessionFactory() as session:
+        draft = session.get(DraftSection, draft_id)
+        if draft is None:
+            raise HTTPException(status_code=404, detail="draft section not found")
+        facts = (
+            session.query(Fact)
+            .filter(Fact.requirement_id == draft.requirement_id)
+            .order_by(Fact.id)
+            .all()
+        )
+        findings = replace_validation_findings(session, draft, facts)
+        session.commit()
+        for finding in findings:
+            session.refresh(finding)
+        return ValidationResponse(
+            draft_section_id=draft.id,
+            valid=not findings,
+            findings=[_validation_finding_response(f) for f in findings],
+        )
+
+
+@app.get("/draft-sections/{draft_id}/validation", response_model=ValidationResponse)
+async def get_draft_section_validation(draft_id: int) -> ValidationResponse:
+    """Return persisted validation findings for a generated draft."""
+    with _SessionFactory() as session:
+        draft = session.get(DraftSection, draft_id)
+        if draft is None:
+            raise HTTPException(status_code=404, detail="draft section not found")
+        findings = (
+            session.query(ValidationFinding)
+            .filter(ValidationFinding.draft_section_id == draft_id)
+            .order_by(ValidationFinding.id)
+            .all()
+        )
+        return ValidationResponse(
+            draft_section_id=draft.id,
+            valid=not findings,
+            findings=[_validation_finding_response(f) for f in findings],
+        )
 
 
 def _normalize_and_store(session, requirement: Requirement) -> None:
