@@ -1,0 +1,48 @@
+name: Pakistan IT Tender Radar
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'tender_radar/**'
+      - '.github/workflows/tender-radar.yml'
+  schedule:
+    - cron: '0 4 * * 1-5' # approx. 09:00 Pakistan; GitHub can delay cron runs
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install beautifulsoup4
+      - run: python -m unittest discover -s tender_radar/tests -p 'test_*.py' -v
+
+  collect:
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install beautifulsoup4
+      - run: python tender_radar/radar.py --pages 3 --output-dir tender_radar/data
+      - name: Publish report only after successful collection
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tender_radar/data/latest.md tender_radar/data/latest.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'data: refresh verified IT tender shortlist'
+            git push
+          fi
